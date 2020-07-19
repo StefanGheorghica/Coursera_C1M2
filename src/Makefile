@@ -1,75 +1,98 @@
-#******************************************************************************
-# Copyright (C) 2017 by Alex Fosdick - University of Colorado
-#
-# Redistribution, modification or use of this software in source or binary
-# forms is permitted as long as the files maintain this copyright. Users are 
-# permitted to modify this and use it to learn about the field of embedded
-# software. Alex Fosdick and the University of Colorado are not liable for any
-# misuse of this material. 
-#
-#*****************************************************************************
-
 #------------------------------------------------------------------------------
-# <Put a Description Here>
+# Description: Makefile for week 2 application assignment
 #
 # Use: make [TARGET] [PLATFORM-OVERRIDES]
 #
 # Build Targets:
-#      <Put a description of the supported targets here>
+#      <file>.i    - Generate the preprocessed output of <file>.c file.
+#      <file>.asm  - Generate assembly output of <file>.c file.
+#      <file>.o    - Generate the object file for <file>.c file.
+#      compile-all - Compile all object files, but DO NOT link.
+#      build       - Compile all object files and link into a final executable.
+#      clean       - Remove all compiled objects, preprocessed outputs,
+#                    assembly outputs, executable files and build output files.
 #
 # Platform Overrides:
-#      <Put a description of the supported Overrides here
+#      PLATFORM=HOST   - Build target will be the host platform.
+#      PLATFORM=MSP432 - Build target will be the MSP432 platform.
 #
 #------------------------------------------------------------------------------
-include sources.mk
 
 # Platform Overrides
-PLATFORM = HOST
+PLATFORM ?= HOST
 
-# Architectures Specific Flags
-LINKER_FILE = -T../msp432p401r.lds
+# Include source files
+include sources.mk
+
+# Target name
+TARGET = c1m2
+
+# Architectures Specific Options
 CPU = cortex-m4
-ARCH = armv7e-m
+ARCH = thumb
 SPECS = nosys.specs
+LINKER_FILE = ../msp432p401r.lds
 
-# Compiler Flags and Defines
-TARGET= c1m2
-LDFLAGS = -Wl, -Map=$(TARGET).map -T $(LINKER_FILE) 
-CPPFLAGS = -Wall -Werror -g -O0 -std=c99 $(INCLUDES) 
-
-ifeq ($(PLATFORM),HOST)
-	CC=gcc
-	CFLAGS = -DHOST
-	LD = ld 
+# Compiler Executable Definition
+ifeq ($(PLATFORM), HOST)
+# Linker Executable Definition
+  CC = gcc
+  LD = ld
+  SIZE = size
+  OBJDUMP = objdump
+  # Compiler Flags
+  CFLAGS = -Wall -Werror -g -O0 -std=c99
+  # Linker Flags
+  LDFLAGS = -Xlinker -Map=$(TARGET).map
 else
-	CC=arm-none-eabi-gcc
-	CFLAGS =  -DMSP432 -mcpu=$(CPU) -march=$(ARCH) --specs=$(SPECS) -mfloat-abi=hard -mfpu=fpv4-sp-d16
-	LD = arm-none-eabi-ld
+# Linker Executable Definition
+  CC = arm-none-eabi-gcc
+  LD = arm-none-eabi-ld
+  SIZE = arm-none-eabi-size
+  OBJDUMP = arm-none-eabi-objdump
+  # Compiler Flags
+  CFLAGS = -Wall -Werror -g -O0 -std=c99 \
+           -mcpu=$(CPU) -m$(ARCH) --specs=$(SPECS) \
+           -march=armv7e-m -mfloat-abi=hard -mfpu=fpv4-sp-d16
+  # Linker Flags
+  LDFLAGS = -Xlinker -Map=$(TARGET).map -T $(LINKER_FILE)
 endif
 
-OBJS = $(SOURCES:.c=.o)
+# Preprocessor Flags
+CPPFLAGS = -D$(PLATFORM) $(INCLUDES)
 
-%.o : %.c 
-	$(CC) -c $< $(CFLAGS) $(CPPFLAGS) -o $@
+# Build Receipes
+IMEDIATES = $(SOURCES:.c=.i)
 %.i : %.c
-	$(CC) -E $< $(CFLAGS) $(CPPFLAGS) -o $@
+	$(CC) -E $< $(CPPFLAGS) $(CFLAGS) -o $@
+
+ASEMBLIES = $(SOURCES:.c=.asm)
 %.asm : %.c
-	$(CC) -c $< $(CFLAGS) $(CPPFLAGS) -o $@
-	objdump -S $@
+	$(CC) -S $< $(CPPFLAGS) $(CFLAGS) -o $@
+
+DEPENDENCIES = $(SOURCES:.c=.d)
 %.d : %.c
-	$(CC) -M $< $(CFLAGS) $(CPPFLAGS) -o $@
+	$(CC) -M $< $(CPPFLAGS) $(CFLAGS) -o $@
+
+OBJECTS = $(SOURCES:.c=.o)
+%.o : %.c
+	$(CC) -c $< $(CPPFLAGS) $(CFLAGS) -o $@
+
+# Phony Targets
+.PHONY: compile-all
+compile-all: $(OBJECTS)
 
 .PHONY: build
-build: all
+build: $(TARGET).out
 
-.PHONY: all
-all: $(TARGET).out
+$(TARGET).out: $(OBJECTS) $(DEPENDENCIES)
+	$(CC) $(OBJECTS) $(CFLAGS) $(LDFLAGS) -MD -o $@
+	$(SIZE) -Atd $@
 
-$(TARGET).out: $(OBJS) 
-	$(CC) $(OBJS) $(CFLAGS) $(CPPFLAGS) $(LDFLAGS) -o $@
+$(TARGET).asm : $(TARGET).out
+	touch $(TARGET).asm
+	$(OBJDUMP) -d -C -S $(TARGET).out > $(TARGET).asm
 
 .PHONY: clean
 clean:
-	rm -f $(OBJS) $(TARGET).out $(TARGET).map *asm *i
-
-
+	rm -f $(IMEDIATES) $(ASEMBLIES) $(DEPENDENCIES) $(OBJECTS) $(TARGET).out $(TARGET).map $(TARGET).asm *o *d
